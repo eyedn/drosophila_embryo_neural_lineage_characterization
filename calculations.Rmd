@@ -1,0 +1,119 @@
+---
+title: "Calculations"
+author: "Aydin Karatas"
+date: "2024-01-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(stats)
+library(svglite)
+```
+
+## load data and pre-process dataframe
+```{r pre-processing}
+# load data
+data <- read.csv("../calculations.csv", header = T)[, 1:13]
+
+# remove duplicate rows
+data <- data[!duplicated(data[, 1]), ]
+rownames(data) <- data[, 1]
+data <- data[, -1]
+```
+
+## generate histograms of each class
+```{r histograms}
+# get all unqiue values for neuron class
+neuron_class <- sort(unique(data[, 1]))
+
+# get columns to plot
+cols_to_plot <- c("neuropil.to.cell.body", "ratio")
+
+# iterate through each class; generate histograms
+for (i in seq_len((length(cols_to_plot)))) {
+  cat(paste0(cols_to_plot[i], "\n"))
+ for (j in seq_len(length(neuron_class))) {
+    class_subset <- data[data[, "class"] == neuron_class[j], ]
+    hist(class_subset[, cols_to_plot[i]], 
+          main = paste0("Class ", neuron_class[j]),
+          xlab = cols_to_plot[i])
+    cat(paste0("stats for class ", neuron_class[j], "\n"))
+    print(summary(class_subset[, cols_to_plot[i]]))
+  } 
+}
+
+# generate box plot of all data
+box_n2c <- ggplot(data, aes(x=class, y=neuropil.to.cell.body)) +
+  geom_boxplot() +
+  geom_jitter()
+box_n2c
+ggsave("../figures/box_n2c.svg", box_n2c)
+
+box_r <- ggplot(data, aes(x=class, y=ratio)) +
+  geom_boxplot() +
+  geom_jitter()
+box_r
+ggsave("../figures/box_r.svg", box_r)
+```
+
+## perform statistical testing
+```{r signif testing}
+# generate p-val for each pair of classes
+num_classes <- length(unique(data[, "class"]))
+
+# define matrices to hold p-values
+n2c_p_vals <- matrix(nrow = length(neuron_class), ncol = length(neuron_class))
+rownames(n2c_p_vals) <- neuron_class
+colnames(n2c_p_vals) <- neuron_class
+ratio_p_vals <- matrix(nrow = length(neuron_class), ncol = length(neuron_class))
+rownames(ratio_p_vals) <- neuron_class
+colnames(ratio_p_vals) <- neuron_class
+
+for (k in seq_len((length(cols_to_plot)))) {
+  for (i in seq_len(num_classes)) {
+    for (j in seq_len(num_classes)) {
+      if (i <= j) {
+        next
+      }
+      p_val <- wilcox.test(data[data[, "class"] == neuron_class[i], 
+                                cols_to_plot[k]],
+                           data[data[, "class"] == neuron_class[j], 
+                                cols_to_plot[k]])[[3]]
+      if (k == 1) {
+        n2c_p_vals[i, j] <- p_val
+      } else {
+        ratio_p_vals[i, j] <- p_val
+      }
+    }
+      
+  }
+}
+```
+
+## multiple hypothesis correction
+```{r mult. hypothesis correction}
+# function to apply BH correction and maintain matrix format
+correct_pvalues <- function(matrix) {
+  pvalues <- na.omit(as.vector(matrix))
+  pvalues_corrected <- p.adjust(pvalues, method = "BH")
+  matrix[!is.na(matrix)] <- pvalues_corrected
+  
+  return(matrix)
+}
+
+# apply correction
+corrected_n2c_p <- correct_pvalues(n2c_p_vals)
+corrected_ratio_p <- correct_pvalues(ratio_p_vals)
+
+# print the matrices
+print("n2c uncorrected")
+print(n2c_p_vals)
+print("n2c corrected")
+print(corrected_n2c_p)
+print("ratio uncorrected")
+print(ratio_p_vals)
+print("ratio corrected")
+print(corrected_ratio_p)
+```
